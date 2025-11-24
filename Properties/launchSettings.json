@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ArchonBot": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
