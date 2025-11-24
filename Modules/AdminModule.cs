@@ -10,6 +10,25 @@ namespace ArchonBot.Modules
         private readonly CommandService _commands = commands;
         private readonly IServiceProvider _provider = provider;
 
+        [SlashCommand("timestamp", "取得指定時間的Discord時間戳")]
+        public async Task TimestampAsync(int year, int month, int day, int hour, int minute, int second)
+        {
+            await DeferAsync(ephemeral: true);
+            var time = new DateTime(year, month, day, hour, minute, second);
+            var embed = new EmbedBuilder().WithTitle("Discord時間戳").WithDescription($"指定時間：{time}");
+            var all_formats = "" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.ShortTime)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.ShortTime)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.LongTime)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.LongTime)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.ShortDate)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.ShortDate)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.LongDate)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.LongDate)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.ShortDateTime)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.ShortDateTime)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.LongDateTime)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.LongDateTime)}`\n" +
+                $"· {time.ToDiscordTimestamp(DiscordTimestampFormat.Relative)}\n> `{time.ToDiscordTimestamp(DiscordTimestampFormat.Relative)}`\n";
+            embed.AddField("各時間戳格式", all_formats);
+
+            await FollowupAsync("", embed: embed.Build(), ephemeral: true);
+        }
+
         [SlashCommand("module-load", "動態載入指定模組")]
         public async Task LoadModule(string moduleName)
         {
