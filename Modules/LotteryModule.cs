@@ -64,12 +64,12 @@ namespace ArchonBot.Modules
 
             if (!int.TryParse(modal.PrizeAmount, out int count))
             {
-                await RespondAsync("❌ **獎品數格式錯誤，請輸入正整數！**", ephemeral: true);
+                await FollowupAsync("❌ **獎品數格式錯誤，請輸入正整數！**", ephemeral: true);
                 return;
             }
             if (count <= 0)
             {
-                await RespondAsync("❌ **獎品數必須是正整數，請勿輸入負數！**", ephemeral: true);
+                await FollowupAsync("❌ **獎品數必須是正整數，請勿輸入負數！**", ephemeral: true);
                 return;
             }
 
@@ -80,7 +80,7 @@ namespace ArchonBot.Modules
                 if (!DateTime.TryParseExact(modal.ExpectedTime, "yyyy-MM-dd HH:mm:ss", null,
                     System.Globalization.DateTimeStyles.None, out var parsed))
                 {
-                    await RespondAsync("❌ **時間格式錯誤：請使用 `YYYY-MM-DD HH:mm:ss` 的格式進行填寫**", ephemeral: true);
+                    await FollowupAsync("❌ **時間格式錯誤：請使用 `YYYY-MM-DD HH:mm:ss` 的格式進行填寫**", ephemeral: true);
                     return;
                 }
 
@@ -136,18 +136,13 @@ namespace ArchonBot.Modules
             }
             Logger.LogDebug("選擇的抽獎活動：" + Lottery?.ToJson(true));
 
-            var embed = new EmbedBuilder()
-                .WithTitle($"管理抽獎活動：{Lottery?.LEM_NAME}（ID：{Lottery?.Id}）")
-                .WithDescription("WIP")
-                .WithColor(Color.Blue)
-                .Build();
-
+            var embed = await Lottery.GetEmbedBuilder(Context.Client);
             var componentBuilder = Lottery?.GetComponentBuilder();
-            var timestamp = DateTime.Now.AddSeconds(10).ToDiscordTimestamp();
+            var timestamp = DateTime.Now.AddSeconds(20).ToDiscordTimestamp();
             
-            await FollowupAsync($"此面板將在{timestamp}失效", [embed], components: componentBuilder?.Build(), ephemeral: true);
+            await FollowupAsync($"此面板將在{timestamp}失效", [embed.Build()], components: componentBuilder?.Build(), ephemeral: true);
 
-            await Task.Delay(10000);
+            await Task.Delay(20000);
             await ModifyOriginalResponseAsync(msg =>
             {
                 msg.Content = "";
@@ -169,7 +164,7 @@ namespace ArchonBot.Modules
             var modal = new ModalBuilder("編輯抽獎", $"lottery_edit_modal:{id}")
                 .AddTextInput("抽獎名稱（必填）", "lottery_name", placeholder: "例如：歐了一把，抽2張月卡", value: Lottery.LEM_NAME, required: true)
                 .AddTextInput("獎品數（必填）", "lottery_count", placeholder: "需為正整數，例：2", value: $"{Lottery.LEM_PRIZE_AMOUNT}", required: true)
-                .AddTextInput("預計抽獎時間（選填）", "lottery_time", placeholder: "例：2025-08-31 20:25:39", value: $"{Lottery.LEM_DRAW_TIME}", required: false)
+                .AddTextInput("預計抽獎時間（選填）", "lottery_time", placeholder: "例：2025-08-31 20:25:39", value: $"{Lottery.LEM_DRAW_TIME:yyyy-MM-dd HH:mm:ss}", required: false)
                 .AddTextInput("抽獎說明（選填）", "lottery_desc", TextInputStyle.Paragraph, placeholder: "其他關於本活動的備註，像是特殊規則或說明", value: $"{Lottery.LEM_DESC}", required: false);
 
             await RespondWithModalAsync(modal.Build());
@@ -201,32 +196,29 @@ namespace ArchonBot.Modules
                     dict.Add("LEM_STATUS", "OPEN");
                     dict.Add("LEM_START_TIME", $"{time:yyyy-MM-dd HH:mm:ss}");
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
-                    var refresh = DbContext.Get<LotteryEvent>(id);
-                    var embed = (await refresh.GetParticipateEmbed(Context.Client)).Build();
-                    var component = (await refresh.GetParticipateComponent(Context.Client)).Build();
-                    var msg = await Context.Channel.SendMessageAsync($"抽獎`{Lottery.LEM_NAME}`開始", embed: embed, components:component);
+                    var refresh = DbContext.Get<LotteryEvent>(id) ?? throw new Exception("找不到抽獎活動");
+                    var owner = await Context.Client.GetUserAsync(refresh.LEM_OWNER_ID);
+                    var embed = refresh.GetParticipateEmbed(Context.Guild, owner);
+                    var component = refresh.GetParticipateComponent();
+                    var msg = await Context.Channel.SendMessageAsync($"抽獎`{Lottery.LEM_NAME}`開始", embed: embed.Build(), components:component.Build());
                     await msg.PinAsync();
                     dict.Clear();
                     dict.Add("LEM_GUILD_ID", Context.Guild.Id);
                     dict.Add("LEM_CHANNEL_ID", msg.Channel.Id);
                     dict.Add("LEM_MESSAGE_ID", msg.Id);
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
-                    responseText = $"抽獎`{Lottery.LEM_NAME}`已於{time.ToDiscordTimestamp()}開放參加。";
+                    responseText = $"抽獎活動 `{Lottery.LEM_NAME}` 已於{time.ToDiscordTimestamp()}開放參加。";
                 }
                 else if(Lottery.LEM_STATUS == "OPEN")
                 {
-                    var msg = await Context.Client.GetMessageAsync(Lottery.LEM_CHANNEL_ID.Value, Lottery.LEM_MESSAGE_ID.Value);
-                    if (msg == null)
-                    {
-                        throw new Exception($"找不到抽獎參與訊息。");
-                    }
+                    var msg = await Context.Client.GetMessageAsync(Lottery.LEM_CHANNEL_ID.Value, Lottery.LEM_MESSAGE_ID.Value) ?? throw new Exception($"找不到抽獎參與訊息。");
                     await msg.UnpinAsync();
-                    await Context.Channel.SendMessageAsync($"抽獎`{Lottery.LEM_NAME}`截止");
+                    await msg.Channel.SendMessageAsync($"抽獎活動 `{Lottery.LEM_NAME}` 已截止\n連結：{msg.GetJumpUrl()}");
 
                     dict.Add("LEM_STATUS", "DRAW");
                     dict.Add("LEM_END_TIME", $"{time:yyyy-MM-dd HH:mm:ss}");
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
-                    responseText = $"抽獎`{Lottery.LEM_NAME}`已於{time.ToDiscordTimestamp()}截止參加。";
+                    responseText = $"抽獎活動 `{Lottery.LEM_NAME}` 已於{time.ToDiscordTimestamp()}截止參加。";
                 }
                 else
                 {
@@ -238,6 +230,11 @@ namespace ArchonBot.Modules
                 await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
             }
 
+            var Lottery_Now = GetLotteryEvent(id);
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Components = Lottery_Now.GetComponentBuilder().Build();
+            });
             // TODO: 切換活動狀態（開放/截止）
             await FollowupAsync(responseText, ephemeral: true);
         }
