@@ -201,6 +201,26 @@ namespace ArchonBot.Services
             return _dbConn.ExecuteScalar<T>(sql, param: param, transaction: _trans, commandTimeout: commandTimeout, commandType: commandType);
         }
 
+        public long Delete<T>(long? id) where T : BaseModel
+        {
+            ArgumentNullException.ThrowIfNull(id);
+            var type = typeof(T);
+            var table = type.GetTableName();
+            var key = type.GetKeyName();
+            if (string.IsNullOrEmpty(table) || string.IsNullOrEmpty(key))
+            {
+                throw new ArgumentException($"{nameof(T)}缺少Table屬性或是未定義Key欄位", nameof(T));
+            }
+            // -- 防護: 避免有人亂寫屬性造成 SQL 注入 --
+            if (!Regex.IsMatch(table, @"^[A-Za-z0-9_]+$") ||
+                !Regex.IsMatch(key, @"^[A-Za-z0-9_]+$"))
+            {
+                throw new ArgumentException("Table 或 Key 名稱不合法");
+            }
+            var sql = $@"DELETE FROM {table} WHERE {key} = @ID";
+            return _dbConn.Execute(sql, param: new { ID = id });
+        }
+
         /// <summary>開啟一個交易並執行多個SQL</summary>
         /// <param name="action">執行內容</param>
         /// <returns>執行成功與否，若發生錯誤會回傳錯誤訊息</returns>

@@ -27,7 +27,7 @@
         public static ExpandoObject Merge<TLeft, TRight>(this TLeft left, TRight right)
         {
             var expando = new ExpandoObject();
-            IDictionary<string, object> dict = expando;
+            IDictionary<string, object?> dict = expando;
             foreach (var p in left.GetType().GetProperties())
                 dict[p.Name] = p.GetValue(left);
             foreach (var p in right.GetType().GetProperties())

@@ -138,11 +138,11 @@ namespace ArchonBot.Modules
 
             var embed = await Lottery.GetEmbedBuilder(Context.Client);
             var componentBuilder = Lottery?.GetComponentBuilder();
-            var timestamp = DateTime.Now.AddSeconds(20).ToDiscordTimestamp();
+            var timestamp = DateTime.Now.AddSeconds(60).ToDiscordTimestamp();
             
             await FollowupAsync($"此面板將在{timestamp}失效", [embed.Build()], components: componentBuilder?.Build(), ephemeral: true);
 
-            await Task.Delay(20000);
+            await Task.Delay(60000);
             await ModifyOriginalResponseAsync(msg =>
             {
                 msg.Content = "";
@@ -200,7 +200,7 @@ namespace ArchonBot.Modules
                     var owner = await Context.Client.GetUserAsync(refresh.LEM_OWNER_ID);
                     var embed = refresh.GetParticipateEmbed(Context.Guild, owner);
                     var component = refresh.GetParticipateComponent();
-                    var msg = await Context.Channel.SendMessageAsync($"抽獎`{Lottery.LEM_NAME}`開始", embed: embed.Build(), components:component.Build());
+                    var msg = await Context.Channel.SendMessageAsync($"抽獎活動 `{Lottery.LEM_NAME}` 已開放參加！", embed: embed.Build(), components:component.Build());
                     await msg.PinAsync();
                     dict.Clear();
                     dict.Add("LEM_GUILD_ID", Context.Guild.Id);
@@ -211,13 +211,18 @@ namespace ArchonBot.Modules
                 }
                 else if(Lottery.LEM_STATUS == "OPEN")
                 {
-                    var msg = await Context.Client.GetMessageAsync(Lottery.LEM_CHANNEL_ID.Value, Lottery.LEM_MESSAGE_ID.Value) ?? throw new Exception($"找不到抽獎參與訊息。");
+                    var msg = await Context.Client.GetMessageAsync(Lottery.LEM_CHANNEL_ID!.Value, Lottery.LEM_MESSAGE_ID!.Value) ?? throw new Exception($"找不到抽獎參與訊息。");
                     await msg.UnpinAsync();
                     await msg.Channel.SendMessageAsync($"抽獎活動 `{Lottery.LEM_NAME}` 已截止\n連結：{msg.GetJumpUrl()}");
 
                     dict.Add("LEM_STATUS", "DRAW");
                     dict.Add("LEM_END_TIME", $"{time:yyyy-MM-dd HH:mm:ss}");
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
+                    await msg.ModifyAsync(msg =>
+                    {
+                        msg.Content = $"抽獎活動 `{Lottery.LEM_NAME}` ~~已開放參加~~ 已截止！";
+                        msg.Components = new ComponentBuilder().Build();
+                    });
                     responseText = $"抽獎活動 `{Lottery.LEM_NAME}` 已於{time.ToDiscordTimestamp()}截止參加。";
                 }
                 else
@@ -236,6 +241,108 @@ namespace ArchonBot.Modules
                 msg.Components = Lottery_Now.GetComponentBuilder().Build();
             });
             // TODO: 切換活動狀態（開放/截止）
+            await FollowupAsync(responseText, ephemeral: true);
+        }
+
+
+        [ComponentInteraction("lottery_join:*")]
+        public async Task JoinLotteryAsync(string lotteryId)
+        {
+            long id = long.Parse(lotteryId);
+            var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
+            if (Lottery == null)
+            {
+                await RespondAsync("找不到抽獎活動");
+                return;
+            }
+            if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
+            {
+                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法參加。", ephemeral: true);
+                return;
+            }
+            await DeferAsync();
+            string responseText = "";
+            var (Success, Message) = await DbContext.RunTxAsync(async () =>
+            {
+                if (Lottery.LEM_STATUS == "OPEN")
+                {
+                    //  檢查是否已參加
+                    var check_sql = "SELECT COUNT(1) FROM LOTTERY_EVENT_PARTICIPANT WHERE LEP_LEM_SEQ = @EventId AND LEP_USER_ID = @UserId";
+                    var check_param = new DynamicParameters();
+                    check_param.Add("EventId", id);
+                    check_param.Add("UserId", Context.User.Id);
+                    var existingCount = DbContext.ExecuteScalar<int>(check_sql, check_param);
+                    if (existingCount > 0)
+                    {
+                        throw new Exception("您已經參加過此抽獎活動，無法重複參加。");
+                    }
+                    //  寫入參加抽獎紀錄
+                    var JoinRecord = new Dictionary<string, object?> {
+                        { "LEP_LEM_SEQ", id },
+                        { "LEP_USER_ID", Context.User.Id },
+                        { "LEP_USER_NAME", Context.User.Username },
+                        { "LEP_JOIN_TIME", DateTime.Now },
+                    };
+                    DbContext.Insert<LOTTERY_EVENT_PARTICIPANT>(JoinRecord);
+                    responseText = $"已成功參加抽獎活動 `{Lottery.LEM_NAME}`！";
+                }
+                else
+                {
+                    throw new Exception($"抽獎活動狀態異常 - {Lottery.LEM_STATUS}");
+                }
+            });
+            if (!Success)
+            {
+                await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
+                return;
+            }
+
+            await FollowupAsync(responseText, ephemeral: true);
+        }
+
+
+        [ComponentInteraction("lottery_leave:*")]
+        public async Task LeaveLotteryAsync(string lotteryId)
+        {
+            long id = long.Parse(lotteryId);
+            var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
+            if (Lottery == null)
+            {
+                await RespondAsync("找不到抽獎活動");
+                return;
+            }
+            if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
+            {
+                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法離開。", ephemeral: true);
+                return;
+            }
+            await DeferAsync();
+            string responseText = "";
+            var (Success, Message) = await DbContext.RunTxAsync(async () =>
+            {
+                if (Lottery.LEM_STATUS == "OPEN")
+                {
+                    //  檢查是否已參加
+                    var check_sql = "SELECT * FROM LOTTERY_EVENT_PARTICIPANT WHERE LEP_LEM_SEQ = @EventId AND LEP_USER_ID = @UserId";
+                    var check_param = new DynamicParameters();
+                    check_param.Add("EventId", id);
+                    check_param.Add("UserId", Context.User.Id);
+                    var JoinRecord = DbContext.QueryFirstOrDefault<LOTTERY_EVENT_PARTICIPANT>(check_sql, check_param) ?? throw new Exception("您尚未參加過此抽獎活動，無須離開。");
+
+                    //  刪除參加抽獎紀錄
+                    DbContext.Delete<LOTTERY_EVENT_PARTICIPANT>(JoinRecord.LEP_SEQ);
+                    responseText = $"已成功離開抽獎活動 `{Lottery.LEM_NAME}`！";
+                }
+                else
+                {
+                    throw new Exception($"抽獎活動狀態異常 - {Lottery.LEM_STATUS}");
+                }
+            });
+            if (!Success)
+            {
+                await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
+            }
+
             await FollowupAsync(responseText, ephemeral: true);
         }
 

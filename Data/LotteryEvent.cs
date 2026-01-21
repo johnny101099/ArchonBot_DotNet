@@ -59,7 +59,7 @@
             builder.WithDescription(">>> " + string.Join("\n", desc));
             builder.AddField("伺服器", guild.Name, inline: true);
             builder.AddField("建立者", owner.Mention, inline: true);
-            builder.AddField("備註", LEM_DESC, inline: false);
+            builder.AddField("備註", string.IsNullOrWhiteSpace(LEM_DESC) ? "無" : LEM_DESC, inline: false);
             builder.WithThumbnailUrl(owner.GetDisplayAvatarUrl());
             return builder;
         }
