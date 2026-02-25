@@ -1,7 +1,4 @@
-﻿using Discord;
-using Discord.Interactions;
-using Microsoft.Extensions.Logging;
-using System.Reflection;
+﻿using Discord.Interactions;
 
 namespace ArchonBot.Modules
 {
