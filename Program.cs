@@ -65,7 +65,6 @@ var host = Host.CreateDefaultBuilder(args)
         //        EnableCaching = false,
         //        PreloadLanguages = ["zh-tw"],
         //        UserAgent = "johnny101099/1.0",
-        //        MaxRetries = 3
         //    };
         //    // 手動 new 出 Client 實例並傳入需要的參數
         //    // 這樣就不會觸發 DI 容器去自動解析 HttpHelper 的建構函式

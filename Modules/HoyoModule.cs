@@ -1,5 +1,6 @@
 ﻿using Discord.Interactions;
 using EnkaDotNet;
+using EnkaDotNet.Enums.Genshin;
 
 namespace ArchonBot.Modules
 {
@@ -23,12 +24,16 @@ namespace ArchonBot.Modules
             {
                 var options = new EnkaClientOptions
                 {
-                    //EnableCaching = false,
+                    EnableCaching = true,
                     PreloadLanguages = ["zh-tw"],
-                    UserAgent = "ArchonBot/1.0",
-                    //MaxRetries = 3
+                    UserAgent = "TestBot/1.0",
+                    CacheProvider = EnkaDotNet.Caching.CacheProvider.SQLite,
+                    SQLiteCache = new EnkaDotNet.Caching.SQLiteCacheOptions
+                    {
+                        DatabasePath = "EnkaCache.db",
+                    },
                 };
-                _enkaClient = await EnkaClient.CreateAsync(new EnkaClientOptions());
+                _enkaClient = await EnkaClient.CreateAsync(options);
             }
         }
 
@@ -71,11 +76,17 @@ namespace ArchonBot.Modules
                                     .WithPlaceholder("請選擇要檢視的角色...")
                                     .WithOptions(
                                         [.. Charaters.Select(c => new SelectMenuOptionBuilder()
-                                            .WithLabel(c.Name)
+                                            .WithLabel($"{c.Name} ({c.Level}等)")
                                             .WithValue(c.Id.ToString())
-                                            .WithDescription($"等級 {c.Level} - 命座 {c.ConstellationLevel}")
+                                            .WithDescription($"{c.ConstellationLevel}命{c.Weapon.Refinement}精 | 遊戲內展示櫃")
                                             .WithEmote(
-                                                new Emoji("👤")
+                                                c.Element == ElementType.Anemo ? new Emote(1476156044286758942, "Anemo") :
+                                                c.Element == ElementType.Geo ? new Emote(1476156005694963742, "Geo") :
+                                                c.Element == ElementType.Electro ? new Emote(1476155910614290443, "Electro") :
+                                                c.Element == ElementType.Dendro ? new Emote(1476155963026309204, "Dendro") :
+                                                c.Element == ElementType.Hydro ? new Emote(1476155734734672044, "Hydro") :
+                                                c.Element == ElementType.Pyro ? new Emote(1476155793366843534, "Pyro") :
+                                                c.Element == ElementType.Cryo ? new Emote(1476155849591226520, "Cryo") : new Emoji("❓")
                                             )
                                         )]),
                             ])
