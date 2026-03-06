@@ -26,6 +26,11 @@
 		[Display(Name = "獎品數量")]
 		public required int LEM_PRIZE_AMOUNT { get; set; }
 
+		/// <summary>獎品名稱(LEM_PRIZE_NAME)</summary>
+		[Column("LEM_PRIZE_NAME")]
+		[Display(Name = "獎品名稱")]
+		public string? LEM_PRIZE_NAME { get; set; }
+
 		/// <summary>活動說明(LEM_DESC)</summary>
 		[Column("LEM_DESC")]
 		[Display(Name = "活動說明")]
@@ -46,6 +51,11 @@
 		[Display(Name = "允許重複中獎")]
 		public required bool LEM_ALLOW_DUPLICATE { get; set; }
 
+        /// <summary>重抽時排除先前得獎者(LEM_EXCLUDING_PREVIOUS)</summary>
+        [Column("LEM_EXCLUDING_PREVIOUS")]
+		[Display(Name = "重抽時排除先前得獎者")]
+		public required bool LEM_EXCLUDING_PREVIOUS { get; set; }
+
 		/// <summary>伺服器ID(LEM_GUILD_ID)</summary>
 		[Column("LEM_GUILD_ID")]
 		[Display(Name = "伺服器ID")]
@@ -60,6 +70,11 @@
 		[Column("LEM_MESSAGE_ID")]
 		[Display(Name = "訊息ID")]
 		public ulong? LEM_MESSAGE_ID { get; set; }
+
+		/// <summary>訊息URL(LEM_MESSAGE_URL)</summary>
+		[Column("LEM_MESSAGE_URL")]
+		[Display(Name = "訊息URL")]
+		public string? LEM_MESSAGE_URL { get; set; }
 
 		/// <summary>抽獎批次(LEM_DRAW_BATCH)</summary>
 		[Column("LEM_DRAW_BATCH")]

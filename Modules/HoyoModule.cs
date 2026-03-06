@@ -12,10 +12,11 @@ namespace ArchonBot.Modules
             BotService bot,
             DatabaseContext dbContext,
             AdminService adminService,
-            ILogger<LotteryModule> logger)
+            ILogger<LotteryModule> logger,
+            IEnkaClient enkaClient)
             : base(interactions, bot, dbContext, adminService, logger)
         {
-
+            _enkaClient = enkaClient;
         }
 
         private async Task InitializeEnkaClientAsync()

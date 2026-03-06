@@ -16,6 +16,7 @@ namespace ArchonBot.Modules
         {
             var modal = new ModalBuilder("建立抽獎", "lottery_edit_modal:0")
                 .AddTextInput("抽獎名稱（必填）", "lottery_name", placeholder: "例如：歐了一把，抽2張月卡", required: true)
+                .AddTextInput("獎品名稱（必填）", "lottery_prize", placeholder: "獎品名稱，預設為\"月卡\"", value: "月卡", required: true)
                 .AddTextInput("獎品數（必填）", "lottery_count", placeholder: "需為正整數，例：2", value: "1", required: true)
                 .AddTextInput("預計抽獎時間（選填）", "lottery_time", placeholder: "例：2025-08-31 20:25:39", required: false)
                 .AddTextInput("抽獎說明（選填）", "lottery_desc", TextInputStyle.Paragraph, placeholder: "其他關於本活動的備註，像是特殊規則或說明", required: false);
@@ -25,12 +26,17 @@ namespace ArchonBot.Modules
 
         public class LotterEventModal : IModal
         {
-            public string Title => "建立抽獎";
+            public string Title => "建立新抽獎活動";
 
             [RequiredInput(true)]
             [InputLabel("抽獎名稱（必填）")]
             [ModalTextInput("lottery_name", placeholder: "例如：歐了一把，抽2張月卡", maxLength: 50)]
             public string? Name { get; set; }
+
+            [RequiredInput(true)]
+            [InputLabel("獎品名稱（必填）")]
+            [ModalTextInput("lottery_prize", placeholder: "獎品名稱，預設為\"月卡\"", maxLength: 3, initValue: "月卡")]
+            public string? PrizeName { get; set; }
 
             [RequiredInput(true)]
             [InputLabel("獎品數（必填）")]
@@ -131,13 +137,13 @@ namespace ArchonBot.Modules
                 await FollowupAsync($"找不到 ID `{lottery_id}` 的抽獎活動", ephemeral: true);
                 return;
             }
-            Logger.LogDebug("選擇的抽獎活動：" + Lottery?.ToJson(true));
+            Logger.LogDebug("選擇的抽獎活動：" + Lottery.ToJson(true));
 
             var embed = await Lottery.GetEmbedBuilder(Context.Client);
             var componentBuilder = Lottery?.GetComponentBuilder();
             var timestamp = DateTime.Now.AddSeconds(60).ToDiscordTimestamp();
             
-            await FollowupAsync($"此面板將在{timestamp}失效", [embed.Build()], components: componentBuilder?.Build(), ephemeral: true);
+            await FollowupAsync($"-# 此面板將在{timestamp}失效", [embed.Build()], components: componentBuilder?.Build(), ephemeral: true);
 
             await Task.Delay(60000);
             await ModifyOriginalResponseAsync(msg =>
@@ -150,7 +156,11 @@ namespace ArchonBot.Modules
         [ComponentInteraction("lottery_edit:*")]
         public async Task EditLotteryAsync(string lotteryId)
         {
-            long id = long.Parse(lotteryId);
+            if (!long.TryParse(lotteryId, out var id))
+            {
+                await RespondAsync("抽獎活動id有誤");
+                return;
+            }
             var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
             if(Lottery == null)
             {
@@ -160,6 +170,7 @@ namespace ArchonBot.Modules
 
             var modal = new ModalBuilder("編輯抽獎", $"lottery_edit_modal:{id}")
                 .AddTextInput("抽獎名稱（必填）", "lottery_name", placeholder: "例如：歐了一把，抽2張月卡", value: Lottery.LEM_NAME, required: true)
+                .AddTextInput("獎品名稱（必填）", "lottery_prize", placeholder: "獎品名稱，預設為\"月卡\"", value: Lottery.LEM_PRIZE_NAME, required: true)
                 .AddTextInput("獎品數（必填）", "lottery_count", placeholder: "需為正整數，例：2", value: $"{Lottery.LEM_PRIZE_AMOUNT}", required: true)
                 .AddTextInput("預計抽獎時間（選填）", "lottery_time", placeholder: "例：2025-08-31 20:25:39", value: $"{Lottery.LEM_DRAW_TIME:yyyy-MM-dd HH:mm:ss}", required: false)
                 .AddTextInput("抽獎說明（選填）", "lottery_desc", TextInputStyle.Paragraph, placeholder: "其他關於本活動的備註，像是特殊規則或說明", value: $"{Lottery.LEM_DESC}", required: false);
@@ -203,6 +214,7 @@ namespace ArchonBot.Modules
                     dict.Add("LEM_GUILD_ID", Context.Guild.Id);
                     dict.Add("LEM_CHANNEL_ID", msg.Channel.Id);
                     dict.Add("LEM_MESSAGE_ID", msg.Id);
+                    dict.Add("LEM_MESSAGE_URL", msg.GetJumpUrl());
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
                     responseText = $"抽獎活動 `{Lottery.LEM_NAME}` 已於{time.ToDiscordTimestamp()}開放參加。";
                 }
@@ -233,9 +245,10 @@ namespace ArchonBot.Modules
             }
 
             var Lottery_Now = GetLotteryEvent(id);
+            var component = Lottery_Now.GetComponentBuilder().Build();
             await ModifyOriginalResponseAsync(msg =>
             {
-                msg.Components = Lottery_Now.GetComponentBuilder().Build();
+                msg.Components = component;
             });
             // TODO: 切換活動狀態（開放/截止）
             await FollowupAsync(responseText, ephemeral: true);

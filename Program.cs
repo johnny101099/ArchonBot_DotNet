@@ -3,7 +3,7 @@
 using Discord.Commands;
 using Discord.Interactions;
 using EnkaDotNet;
-using EnkaDotNet.DIExtensions;
+using EnkaDotNet.Caching;
 using Microsoft.Extensions.Logging.Console;
 using System.Data;
 
@@ -58,27 +58,23 @@ var host = Host.CreateDefaultBuilder(args)
         //  Admin服務(包含各種)
         services.AddSingleton<AdminService>();
         //  Enka.NET 客戶端服務
-        //services.AddSingleton<IEnkaClient>(sp =>
-        //{
-        //    var options = new EnkaClientOptions
-        //    {
-        //        EnableCaching = false,
-        //        PreloadLanguages = ["zh-tw"],
-        //        UserAgent = "johnny101099/1.0",
-        //    };
-        //    // 手動 new 出 Client 實例並傳入需要的參數
-        //    // 這樣就不會觸發 DI 容器去自動解析 HttpHelper 的建構函式
-        //    return EnkaClient.CreateAsync(options).GetAwaiter().GetResult();
-        //});
+        services.AddSingleton<IEnkaClient>(sp =>
+        {
+            var options = new EnkaClientOptions
+            {
+                EnableCaching = true,
+                PreloadLanguages = ["zh-tw"],
+                UserAgent = "ArchonBot/1.0",
+                CacheProvider = CacheProvider.SQLite,
+                SQLiteCache = new SQLiteCacheOptions
+                {
+                    DatabasePath = "EnkaCache.db",
+                    EnableAutoCleanup = false,
+                },
+            };
 
-        //services.AddEnkaNetClient(options =>
-        //{
-        //    options.EnableCaching = false; // Disable caching
-        //                                   // options.CacheDurationMinutes will be ignored if EnableCaching is false
-        //    options.PreloadLanguages = ["zh-tw"]; // 預載入繁體中文資料
-        //    options.UserAgent = "johnny101099";
-        //    options.MaxRetries = 3; // 最大重試次數
-        //});
+            return EnkaClient.CreateAsync(options).GetAwaiter().GetResult();
+        });
     })
     .Build();
 

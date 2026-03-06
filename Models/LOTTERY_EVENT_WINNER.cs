@@ -45,5 +45,10 @@
         [Column("LEW_WINNER_TIME")]
         [Display(Name = "中獎時間")]
         public required DateTime LEW_WINNER_TIME { get; set; }
+        
+        /// <summary>領獎時間(LEW_CLAIM_TIME)</summary>
+        [Column("LEW_CLAIM_TIME")]
+        [Display(Name = "領獎時間")]
+        public DateTime? LEW_CLAIM_TIME { get; set; }
     }
 }

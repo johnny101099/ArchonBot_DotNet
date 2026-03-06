@@ -6,26 +6,124 @@
         public IList<LOTTERY_EVENT_PARTICIPANT> Participants { get; set; } = [];
         public IList<LOTTERY_EVENT_WINNER> Winners { get; set; } = [];
         public IList<LOTTERY_EVENT_WINNER> ConfirmWinners => Winners.Where(w => w.LEW_HAS_CLAIM).ToList();
+        public IList<LOTTERY_EVENT_WINNER> CurrentWinners => Winners.Where(w => w.LEW_BATCH == LEM_DRAW_BATCH).ToList();
+        public IList<LOTTERY_EVENT_WINNER> DisplayWinners => Winners.Where(w => w.LEW_HAS_CLAIM || w.LEW_BATCH == LEM_DRAW_BATCH).ToList();
+
+
+        private bool ReDraw => LEM_DRAW_BATCH > 0;
+        private int DrawAmount => LEM_PRIZE_AMOUNT - ConfirmWinners.Count;
+        private string AllowDuplicateText => LEM_ALLOW_DUPLICATE ? "是" : "否";
+        private string ExcludingPreviousText => LEM_EXCLUDING_PREVIOUS ? "是" : "否";
+
+        private readonly HashSet<string> CanEdit = ["NEW", "OPEN", "DRAW"];
+
+        //  各按鈕依據狀態自動調整
+        private ButtonBuilder MainButton
+        {
+            get {
+                var (style, label, custId, isDisabled) = (LEM_STATUS, LEM_DRAW_BATCH) switch
+                {
+                    ("DRAW", 0) => (ButtonStyle.Success, "抽獎", $"lottery_draw:{Id}", false),
+                    ("DRAW", > 0) => (ButtonStyle.Success, "重新抽獎", $"lottery_draw:{Id}", false),
+                    ("NEW", _) => (ButtonStyle.Success, "開放參加", $"lottery_toggle:{Id}", false),
+                    ("OPEN", _) => (ButtonStyle.Danger, "截止參加", $"lottery_toggle:{Id}", false),
+                    ("END", _) => (ButtonStyle.Secondary, "已結束", $"lottery_end:{Id}", true),
+                    ("CLOSED", _) => (ButtonStyle.Secondary, "已關閉", $"lottery_closed:{Id}", true),
+                    _ => (ButtonStyle.Secondary, "未知狀態", $"lottery_unknown:{Id}", true),
+                };
+                return new ButtonBuilder(label, custId, style, isDisabled: isDisabled);
+            }
+        }
+
+        private ButtonBuilder StatusButton
+        {
+            get
+            {
+                var label = (LEM_STATUS, LEM_DRAW_BATCH, ConfirmWinners.Count) switch
+                {
+                    ("DRAW", 0, 0) => $"將抽出: {LEM_PRIZE_NAME} x {LEM_PRIZE_AMOUNT}",
+                    ("DRAW", > 0, _) => $"將抽出: {LEM_PRIZE_NAME} x {LEM_PRIZE_AMOUNT - ConfirmWinners.Count}",
+                    ("NEW", _, _) => "狀態：新建",
+                    ("OPEN", _, _) => $"已於{LEM_START_TIME:YYYY/MM/DD HH:mm:ss}開放參加",
+                    ("END", _, _) => "已結束",
+                    ("CLOSED", _, _) => "已關閉",
+                    _ => "未知狀態",
+                };
+                return new ButtonBuilder(label, $"lottery_status_info:{Id}", ButtonStyle.Secondary, isDisabled: true);
+            }
+        }
+
+
+        public enum UI_MODE
+        {
+            GENERAL,
+            MANAGE,
+            PARTICIPATE
+        }
+
+        public ComponentBuilderV2 GetComponentBuilderV2(UI_MODE mode = UI_MODE.GENERAL)
+        {
+            var components = new ComponentBuilderV2([
+                new ContainerBuilder()
+                    .WithTextDisplay(
+                        new TextDisplayBuilder("主要操作：")
+                    )
+                    .WithActionRow(
+                        new ActionRowBuilder([MainButton])
+                    )
+                    .WithTextDisplay(
+                        new TextDisplayBuilder("其他操作：")
+                    )
+                    .WithActionRow(
+                        new ActionRowBuilder()
+                            .WithComponents([
+                                new ButtonBuilder()
+                                    .WithStyle(ButtonStyle.Primary)
+                                    .WithLabel("編輯抽獎活動基本資料")
+                                    .WithCustomId($"lottery_edit:{Id}"),
+                                new ButtonBuilder()
+                                    .WithStyle(ButtonStyle.Primary)
+                                    .WithLabel("允許重複中獎：否")
+                                    .WithCustomId($"lottery_setting:{Id}:allow_duplicate"),
+                                new ButtonBuilder()
+                                    .WithStyle(ButtonStyle.Primary)
+                                    .WithLabel("重抽時排除先前得獎者：是")
+                                    .WithCustomId($"lottery_setting:{Id}:excluding_previous"),
+                                new ButtonBuilder()
+                                    .WithStyle(ButtonStyle.Secondary)
+                                    .WithLabel("關閉抽獎活動")
+                                    .WithCustomId($"lottery_close:{Id}"),
+                            ])
+                    )
+                    .WithTextDisplay(
+                        new TextDisplayBuilder($"-# 此面板將在{DateTime.Now.AddSeconds(60).ToDiscordTimestamp()}失效")
+                    )
+            ]);
+            return components;
+        }
 
         /// <summary>取得管理面板的組件</summary>
         /// <returns>管理面板的ComponentBuilder</returns>
-        public ComponentBuilder GetComponentBuilder()
+        public ComponentBuilder GetComponentBuilder(UI_MODE mode = UI_MODE.GENERAL)
         {
-            var CanOpen = LEM_STATUS == "NEW";
-            var toggleLabel = CanOpen ? "開放抽獎" : "截止抽獎";
-            var toggleStyle = CanOpen ? ButtonStyle.Success : ButtonStyle.Danger;
             var builder = new ComponentBuilder();
-            if(LEM_STATUS == "NEW" || LEM_STATUS == "OPEN")
-            {
-                builder.WithButton(label: toggleLabel, customId: $"lottery_toggle:{Id}", style: toggleStyle);
+            builder.WithButton(MainButton, 0);
+            if(LEM_STATUS == "DRAW") {
+                builder.WithButton($"將抽出 {LEM_PRIZE_NAME} x {DrawAmount}", $"lottery_draw_amount:{Id}", ButtonStyle.Secondary, disabled: true, row: 0);
             }
-            else if(LEM_STATUS == "DRAW")
+            var btn_row = 1;
+            if (LEM_STATUS == "DRAW" && ReDraw)
             {
-                var label = LEM_DRAW_BATCH == 0 ? "抽獎" : "重新抽獎";
-                builder.WithButton(label: label, customId: $"lottery_draw:{Id}", style: ButtonStyle.Success);
+                btn_row = 2;
+                builder.WithSelectMenu($"lottery_confirm_winner:{Id}", CurrentWinners.Select(u => new SelectMenuOptionBuilder(u.LEW_USER_NAME, u.Id.ToString())).ToList(), row: 1);
             }
-            builder.WithButton(label: "編輯抽獎設定", customId: $"lottery_edit:{Id}", style: ButtonStyle.Primary);
-            builder.WithButton(label: "關閉活動", customId: $"lottery_close:{Id}", style: ButtonStyle.Secondary);
+            if (CanEdit.Contains(LEM_STATUS))
+            {
+                builder.WithButton("編輯抽獎活動基本資料", $"lottery_edit:{Id}", ButtonStyle.Primary, row: btn_row);
+                builder.WithButton($"允許重複中獎：{AllowDuplicateText}", $"lottery_setting:{Id}:allow_duplicate", ButtonStyle.Primary, row: btn_row);
+                builder.WithButton($"重抽時排除先前得獎者：{ExcludingPreviousText}", $"lottery_setting:{Id}:excluding_previous", ButtonStyle.Primary, row: btn_row);
+                builder.WithButton("關閉抽獎活動", $"lottery_close:{Id}", style: ButtonStyle.Secondary, row: btn_row);
+            }
             return builder;
         }
 
@@ -34,8 +132,9 @@
         public ComponentBuilder GetParticipateComponent()
         {
             var builder = new ComponentBuilder();
-            builder.WithButton(label: "參加抽獎", customId: $"lottery_join:{Id}", style: ButtonStyle.Success);
-            builder.WithButton(label: "退出抽獎", customId: $"lottery_leave:{Id}", style: ButtonStyle.Danger);
+            builder.WithButton("參加抽獎", $"lottery_join:{Id}", ButtonStyle.Success, row:0);
+            builder.WithButton("退出抽獎", $"lottery_leave:{Id}", ButtonStyle.Danger, row: 0);
+            builder.WithButton($"當前參與人數: {Participants.Count} 人", $"lottery_participants_count:{Id}", ButtonStyle.Secondary, row: 1);
             return builder;
         }
 
