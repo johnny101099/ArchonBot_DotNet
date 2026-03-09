@@ -93,6 +93,7 @@ namespace ArchonBot.Modules
             {
                 {"LEM_NAME", modal.Name},
                 {"LEM_PRIZE_AMOUNT", count},
+                {"LEM_PRIZE_NAME", modal.PrizeName},
                 {"LEM_DESC", modal.Description},
                 {"LEM_DRAW_TIME", drawTime},
             };
@@ -177,6 +178,45 @@ namespace ArchonBot.Modules
 
             await RespondWithModalAsync(modal.Build());
         }
+
+        [ComponentInteraction("lottery_setting:*:*")]
+        public async Task ToggleLotterySettingAsync(string lotteryId, string setting)
+        {
+            long id = long.Parse(lotteryId);
+            var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
+            if (Lottery == null)
+            {
+                await RespondAsync("找不到抽獎活動");
+                return;
+            }
+            if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
+            {
+                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉", ephemeral: true);
+                return;
+            }
+            await DeferAsync();
+            var dict = new Dictionary<string, object?>();
+            if (setting == "allow_duplicate")
+            {
+                dict["LEM_ALLOW_DUPLICATE"] = !Lottery.LEM_ALLOW_DUPLICATE;
+            }
+            if (setting == "excluding_previous")
+            {
+                dict["LEM_EXCLUDING_PREVIOUS"] = !Lottery.LEM_EXCLUDING_PREVIOUS;
+            }
+            var (Success, Message) = DbContext.RunTx(() =>
+            {
+                DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
+            });
+            if(!Success)
+            {
+                Logger.LogWarning($"抽獎`{Lottery.LEM_NAME}`設定更新失敗:\n{Lottery.ToJson()}");
+                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`設定更新失敗，請稍後再試", ephemeral: true);
+                return;
+            }
+            await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`設定已更新", ephemeral: true);
+        }
+
 
         [ComponentInteraction("lottery_toggle:*")]
         public async Task ToggleLotteryAsync(string lotteryId)
