@@ -3,17 +3,32 @@
     [Table("LOTTERY_EVENT_MASTER")]
     public class LotteryEvent : LOTTERY_EVENT_MASTER
     {
+        /// <summary>參與者</summary>
         public IList<LOTTERY_EVENT_PARTICIPANT> Participants { get; set; } = [];
+        /// <summary>得獎者</summary>
         public IList<LOTTERY_EVENT_WINNER> Winners { get; set; } = [];
+        /// <summary>確認得獎者</summary>
         public IList<LOTTERY_EVENT_WINNER> ConfirmWinners => Winners.Where(w => w.LEW_HAS_CLAIM).ToList();
+        /// <summary>當前輪次得獎者</summary>
         public IList<LOTTERY_EVENT_WINNER> CurrentWinners => Winners.Where(w => w.LEW_BATCH == LEM_DRAW_BATCH).ToList();
-        public IList<LOTTERY_EVENT_WINNER> DisplayWinners => Winners.Where(w => w.LEW_HAS_CLAIM || w.LEW_BATCH == LEM_DRAW_BATCH).ToList();
+        /// <summary>當前得獎者(包含已確認與當前輪次)</summary>
+        public IList<LOTTERY_EVENT_WINNER> DisplayWinners => [.. ConfirmWinners, .. CurrentWinners];
 
 
         private bool ReDraw => LEM_DRAW_BATCH > 0;
         private int DrawAmount => LEM_PRIZE_AMOUNT - ConfirmWinners.Count;
         private string AllowDuplicateText => LEM_ALLOW_DUPLICATE ? "是" : "否";
         private string ExcludingPreviousText => LEM_EXCLUDING_PREVIOUS ? "是" : "否";
+        public string CTRL_USER_MENTION => $"<@{LEM_OWNER_ID}>";
+        private string StatusText => LEM_STATUS switch
+        {
+            "NEW" => "新建",
+            "OPEN" => "開放參加",
+            "DRAW" => "待抽獎",
+            "END" => "已結束",
+            "CLOSED" => "已關閉",
+            _ => "未知狀態"
+        };
 
         private readonly HashSet<string> CanEdit = ["NEW", "OPEN", "DRAW"];
 
@@ -147,7 +162,7 @@
             var builder = new EmbedBuilder().WithTitle(LEM_NAME);
             var desc = new List<string>
             {
-                $"**預計抽出 `{LEM_PRIZE_AMOUNT}` 個獎項**",
+                $"**預計抽出`{LEM_PRIZE_NAME}` x `{LEM_PRIZE_AMOUNT}`**",
                 $"開放時間：{LEM_CREATE_TIME.ToDiscordTimestamp(DiscordTimestampFormat.ShortDateTime)}"
             };
             if(LEM_STATUS == "DRAW")
@@ -160,6 +175,31 @@
             builder.AddField("建立者", owner.Mention, inline: true);
             builder.AddField("備註", string.IsNullOrWhiteSpace(LEM_DESC) ? "無" : LEM_DESC, inline: false);
             builder.WithThumbnailUrl(owner.GetDisplayAvatarUrl());
+            return builder;
+        }
+
+        /// <summary>取得抽獎活動的參與面板</summary>
+        /// <param name="guild">舉辦活動之伺服器</param>
+        /// <param name="owner">抽獎活動的建立者</param>
+        /// <returns>參與面板的EmbedBuilder</returns>
+        public EmbedBuilder GetParticipateListEmbed(int page = 0)
+        {
+            var builder = new EmbedBuilder().WithTitle(LEM_NAME).WithDescription($"-# 當前參與人數：`{Participants.Count}`人");
+            for(var i = 0; i <= Math.Ceiling((double)Participants.Count / 10); i++)
+            {
+                var start = i * 10;
+                var leps = Participants.Skip(i * 10).Take(10).Select(p => $"- {p.LEP_USER_NAME}({p.LEP_JOIN_TIME:yyyy-MM-dd HH:mm:ss})").ToList();
+                builder.AddField($"參與者清單({i+1})", string.Join("\n", leps));
+            }
+            return builder;
+        }
+        /// <summary>取得抽獎活動的參與面板</summary>
+        /// <param name="guild">舉辦活動之伺服器</param>
+        /// <param name="owner">抽獎活動的建立者</param>
+        /// <returns>參與面板的EmbedBuilder</returns>
+        public ComponentBuilder GetParticipateListComponent(int page)
+        {
+            var builder = new ComponentBuilder();
             return builder;
         }
 
@@ -178,10 +218,65 @@
         public async Task<EmbedBuilder> GetEmbedBuilder(DiscordSocketClient client)
         {
             var owner = await client.GetUserAsync(LEM_OWNER_ID);
+            var builder = new EmbedBuilder();
+            builder.WithTitle(LEM_NAME);
+            builder.WithThumbnailUrl(owner.GetDisplayAvatarUrl());
+            builder.WithColor(Color.Blue);
+            var basic_info = new List<string>
+            {
+                $"-# - 編號　　：`{Id}`",
+                $"-# - 建立者　：{owner.Mention}",
+                $"-# - 建立時間：{LEM_CREATE_TIME.ToDiscordTimestamp()}",
+            };
+
+            builder.WithDescription(string.Join("\n", basic_info));
+
+            var setting = new List<string>();
+            setting.Add($"- 獎項及數量　：`{LEM_PRIZE_NAME}` x `{LEM_PRIZE_AMOUNT}`");
+            if (LEM_DRAW_TIME.HasValue)
+            {
+                setting.Add($"- 預計抽獎時間：{LEM_DRAW_TIME.ToDiscordTimestamp()}");
+            }
+            setting.Add($"- 允許重複中獎：`{AllowDuplicateText}`");
+            setting.Add($"- 重抽排除未領：`{ExcludingPreviousText}`");
+
+            builder.AddField("活動設定", string.Join("\n", setting));
+
+            var desc = new List<string>();
+            desc.Add($"- 當前活動狀態：`{StatusText}`");
+            if (LEM_STATUS == "OPEN")
+            {
+                desc.Add($"- 開放時間　　：{LEM_START_TIME.ToDiscordTimestamp()} ~ (尚未結束)");
+                desc.Add($"- 當前參與人數：`{Participants.Count}`人");
+            }
+            if (LEM_STATUS == "DRAW")
+            {
+                desc.Add($"- 開放時間　　：{LEM_START_TIME.ToDiscordTimestamp()} ~ {LEM_END_TIME.ToDiscordTimestamp()}");
+                desc.Add($"- 總參與人數　：`{Participants.Count}`人");
+                desc.Add($"- 當前抽獎進度：`{ConfirmWinners.Count}/{LEM_PRIZE_AMOUNT}`");
+            }
+            if (LEM_STATUS == "END")
+            {
+                desc.Add($"- 開放時間　　：{LEM_START_TIME.ToDiscordTimestamp()} ~ {LEM_END_TIME.ToDiscordTimestamp()}");
+                desc.Add($"- 總參與人數　：`{Participants.Count}`人");
+                desc.Add($"- 當前抽獎進度：`{ConfirmWinners.Count}/{LEM_PRIZE_AMOUNT}`");
+                desc.Add($"- 結束時間　　：{LEM_CLOSE_TIME.ToDiscordTimestamp()}");
+            }
+            if (LEM_STATUS == "CLOSED")
+            {
+                desc.Add($"- 關閉時間　　：{LEM_CLOSE_TIME.ToDiscordTimestamp()}");
+            }
+
+            builder.AddField("活動詳細資料", string.Join("\n", desc));
+            return builder;
+        }
+
+        public async Task<EmbedBuilder> GetEmbedBuilder()
+        {
             var builder = new EmbedBuilder().WithTitle(LEM_NAME);
             var desc = new List<string>
             {
-                $"建立者　：{owner.Mention}",
+                $"建立者　：{CTRL_USER_MENTION}",
                 $"建立時間：{LEM_CREATE_TIME.ToDiscordTimestamp()}",
                 $"建立時間：{LEM_CREATE_TIME.ToDiscordTimestamp()}",
                 $"重複中獎：`{(LEM_ALLOW_DUPLICATE ? "允許" : "不允許")}`"

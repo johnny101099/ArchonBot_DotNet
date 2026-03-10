@@ -20,6 +20,11 @@
             return _config.Id;
         }
 
+        public bool IsBotOwner(ulong userId)
+        {
+            return _config.OwnerIds.Contains(userId);
+        }
+
         public IEnumerable<BOT_PARAM_DETAIL> GetParamDetails(string moduleId, string type, ulong? guildId = null)
         {
             var sql = "" +

@@ -24,6 +24,50 @@
             }
             return ht;
         }
+
+        /// <summary>
+        ///     將 <paramref name="obj"/> 包含在 <paramref name="includeProperties"/> 中的屬性與值轉換為字典。<br/>
+        ///     若未傳入 <paramref name="includeProperties"/>，則會包含所有屬性。
+        /// </summary>
+        /// <param name="obj">要轉換的物件本身</param>
+        /// <param name="includeProperties"><paramref name="obj"/>中要轉換成字典的屬性清單</param>
+        /// <exception cref="ArgumentNullException">呼叫此方法的物件為<see langword="null"/>時</exception>
+        public static Dictionary<string, object?> ToDictionary(this object obj, IEnumerable<string>? includeProperties = null)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            // 若有傳入 includeProperties，則產生對應的 HashSet 加速查詢
+            HashSet<string>? includeSet = null;
+            if (includeProperties != null)
+            {
+                includeSet = new HashSet<string>(includeProperties, StringComparer.OrdinalIgnoreCase);
+            }
+            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in obj.GetType().GetProperties())
+            {
+                string keyName;
+                //  若 includeSet 不為 null 
+                if (includeSet != null)
+                {
+                    //  取得欄位名稱
+                    var colName = prop.GetColName();
+                    //  檢查欄位名是否在 includeSet 中，若不在就跳過(continue是直接進入下一個迴圈的意思)
+                    if (!includeSet.Contains(colName))
+                    {
+                        continue;
+                    }
+                    keyName = colName;
+                }
+                //  若 includeSet 為 null 就直接使用屬性名稱(與先前不傳入第二個參數時的邏輯一致)
+                else
+                {
+                    keyName = prop.GetColName();
+                }
+                //  若沒有提前continue掉就代表這個屬性要加到Dictionary中
+                dict[keyName] = prop.GetValue(obj, null);
+            }
+            return dict;
+        }
+
         public static ExpandoObject Merge<TLeft, TRight>(this TLeft left, TRight right)
         {
             var expando = new ExpandoObject();

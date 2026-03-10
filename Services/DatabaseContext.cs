@@ -98,7 +98,7 @@ namespace ArchonBot.Services
         public long Save<T>(long? id, Dictionary<string, object?> data) where T : BaseModel
         {
             //  如果ID不存在則執行新增
-            if (id == null) 
+            if (id == null || id == default(long)) 
             {
                 return Insert<T>(data);
             }
@@ -244,7 +244,6 @@ namespace ArchonBot.Services
             catch (Exception ex)
             {
                 result.Message = ex.Message;
-                throw;
             }
             finally
             {
@@ -281,7 +280,6 @@ namespace ArchonBot.Services
             catch (Exception ex)
             {
                 result.Message = ex.Message;
-                throw;
             }
             finally
             {

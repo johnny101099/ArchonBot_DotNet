@@ -1,4 +1,7 @@
 ﻿using Discord.Interactions;
+using Polly;
+using System.Runtime.Intrinsics.Arm;
+using System.Threading.Channels;
 
 namespace ArchonBot.Modules
 {
@@ -10,7 +13,7 @@ namespace ArchonBot.Modules
         ILogger<LotteryModule> logger
         ) :　BaseInteractionModule(interactions, bot, dbContext, adminService, logger)
     {
-        //lottery create
+        /// <summary>建立新的抽獎活動</summary>
         [SlashCommand("lottery_create", "建立新的抽獎活動")]
         public async Task CreateLotteryAsync()
         {
@@ -24,6 +27,7 @@ namespace ArchonBot.Modules
             await RespondWithModalAsync(modal.Build());
         }
 
+        /// <summary>抽獎事件基本資料Modal</summary>
         public class LotterEventModal : IModal
         {
             public string Title => "建立新抽獎活動";
@@ -101,17 +105,19 @@ namespace ArchonBot.Modules
             {
                 dict.Add("LEM_OWNER_ID", Context.User.Id);
             }
-            // 🗄️ 寫入資料庫（你可依你的資料表調整）
+            // 寫入資料庫
             var (Success, Message) = DbContext.RunTx(() =>
             {
-                if (newCreate)
-                {
-                    id = DbContext.Insert<LOTTERY_EVENT_MASTER>(dict);
-                }
-                else
-                {
-                    DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
-                }
+                var res_val = DbContext.Save<LOTTERY_EVENT_MASTER>(id, dict);
+                id = newCreate ? res_val : id;
+                //if (newCreate)
+                //{
+                //    id = DbContext.Insert<LOTTERY_EVENT_MASTER>(dict);
+                //}
+                //else
+                //{
+                //    DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
+                //}
             });
 
             if (!Success)
@@ -120,9 +126,26 @@ namespace ArchonBot.Modules
                 await FollowupAsync($"❌ **抽獎活動{operation}失敗：{Message}**", ephemeral: true);
                 return;
             }
-            await FollowupAsync($"🎉 **抽獎活動{operation}成功！**\n活動名稱：`{modal.Name}`\n活動編號：`{id}`", ephemeral: true);
+            //await FollowupAsync($"🎉 **抽獎活動{operation}成功！**\n活動名稱：`{modal.Name}`\n活動編號：`{id}`", ephemeral: true);
+            
+            //  重新取得最新的抽獎活動資料
+            var current = GetLotteryEvent(id);
+            var embed = await current.GetEmbedBuilder(Context.Client);
+            var componentBuilder = current.GetComponentBuilder();
+            var timestamp = DateTime.Now.AddSeconds(30).ToDiscordTimestamp();
+            embed.AddField("操作時間", $"-# 此管理面板於{timestamp}失效");
+            if (!newCreate)
+            {
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Content = $"🎉 **抽獎活動 `{modal.Name}` {operation}成功！**";
+                    msg.Embed = null;
+                    msg.Embeds = null;
+                    msg.Components = null;
+                });
+            }
+            await FollowupAsync($"🎉 **抽獎活動 `{modal.Name}` {operation}成功！**", [embed.Build()], components: componentBuilder.Build(), ephemeral: true);
         }
-
 
         //lottery create
         [SlashCommand("lottery_manager", "管理抽獎活動")]
@@ -141,17 +164,11 @@ namespace ArchonBot.Modules
             Logger.LogDebug("選擇的抽獎活動：" + Lottery.ToJson(true));
 
             var embed = await Lottery.GetEmbedBuilder(Context.Client);
-            var componentBuilder = Lottery?.GetComponentBuilder();
+            var componentBuilder = Lottery.GetComponentBuilder();
             var timestamp = DateTime.Now.AddSeconds(60).ToDiscordTimestamp();
-            
-            await FollowupAsync($"-# 此面板將在{timestamp}失效", [embed.Build()], components: componentBuilder?.Build(), ephemeral: true);
+            embed.AddField("操作時間", $"-# 此管理面板於{timestamp}失效");
 
-            await Task.Delay(60000);
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Content = "";
-                msg.Components = new ComponentBuilder().Build();
-            });
+            await FollowupAsync("", [embed.Build()], components: componentBuilder.Build(), ephemeral: true);
         }
 
         [ComponentInteraction("lottery_edit:*")]
@@ -195,14 +212,17 @@ namespace ArchonBot.Modules
                 return;
             }
             await DeferAsync();
+            var change = new List<string>();
             var dict = new Dictionary<string, object?>();
             if (setting == "allow_duplicate")
             {
                 dict["LEM_ALLOW_DUPLICATE"] = !Lottery.LEM_ALLOW_DUPLICATE;
+                change.Add("- 允許重複中獎" + (Lottery.LEM_ALLOW_DUPLICATE ? "`是` :arrow_right: `否`" : "`否` :arrow_right: `是`"));
             }
             if (setting == "excluding_previous")
             {
                 dict["LEM_EXCLUDING_PREVIOUS"] = !Lottery.LEM_EXCLUDING_PREVIOUS;
+                change.Add("- 重抽時排除先前得獎者：" + (Lottery.LEM_EXCLUDING_PREVIOUS ? "`是` :arrow_right: `否`" : "`否` :arrow_right: `是`"));
             }
             var (Success, Message) = DbContext.RunTx(() =>
             {
@@ -211,29 +231,48 @@ namespace ArchonBot.Modules
             if(!Success)
             {
                 Logger.LogWarning($"抽獎`{Lottery.LEM_NAME}`設定更新失敗:\n{Lottery.ToJson()}");
-                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`設定更新失敗，請稍後再試", ephemeral: true);
+                await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`設定更新失敗，請稍後再試", ephemeral: true);
                 return;
             }
-            await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`設定已更新", ephemeral: true);
-        }
 
+            //  重新取得最新的抽獎活動資料
+            var current = GetLotteryEvent(id);
+            var embed = await current.GetEmbedBuilder(Context.Client);
+            var componentBuilder = current.GetComponentBuilder();
+            var timestamp = DateTime.Now.AddSeconds(30).ToDiscordTimestamp();
+            embed.AddField("操作時間", $"-# 此管理面板於{timestamp}失效");
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Content = $"抽獎活動`{Lottery.LEM_NAME}`的設定已更新：\n{string.Join("\n", change)}";
+                msg.Embed = null;
+                msg.Embeds = null;
+                msg.Components = null;
+            });
+            await FollowupAsync("", [embed.Build()], components: componentBuilder.Build(), ephemeral: true);
+        }
 
         [ComponentInteraction("lottery_toggle:*")]
         public async Task ToggleLotteryAsync(string lotteryId)
         {
+            await DeferAsync();
             long id = long.Parse(lotteryId);
             var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
             if (Lottery == null)
             {
-                await RespondAsync("找不到抽獎活動");
+                await FollowupAsync("找不到抽獎活動");
                 return;
             }
             if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
             {
-                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉", ephemeral: true);
+                await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉", ephemeral: true);
                 return;
             }
-            await DeferAsync();
+            if(!AdminService.IsBotOwner(Context.User.Id) && Lottery.LEM_OWNER_ID != Context.User.Id)
+            {
+                await FollowupAsync($"您並非抽獎活動`{Lottery.LEM_NAME}`的擁有者，無法進行此操作", ephemeral: true);
+                return;
+            }
             string responseText = "";
             var (Success, Message) = await DbContext.RunTxAsync(async () =>
             {
@@ -267,10 +306,13 @@ namespace ArchonBot.Modules
                     dict.Add("LEM_STATUS", "DRAW");
                     dict.Add("LEM_END_TIME", $"{time:yyyy-MM-dd HH:mm:ss}");
                     DbContext.Update<LOTTERY_EVENT_MASTER>(id, dict);
+                    var refresh = DbContext.Get<LotteryEvent>(id) ?? throw new Exception("找不到抽獎活動");
+                    var owner = await Context.Client.GetUserAsync(refresh.LEM_OWNER_ID);
                     await msg.ModifyAsync(msg =>
                     {
                         msg.Content = $"抽獎活動 `{Lottery.LEM_NAME}` ~~已開放參加~~ 已截止！";
-                        msg.Components = new ComponentBuilder().Build();
+                        msg.Embed = refresh.GetParticipateEmbed(Context.Guild, owner).Build();
+                        msg.Components = null;
                     });
                     responseText = $"抽獎活動 `{Lottery.LEM_NAME}` 已於{time.ToDiscordTimestamp()}截止參加。";
                 }
@@ -283,34 +325,39 @@ namespace ArchonBot.Modules
             {
                 await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
             }
-
-            var Lottery_Now = GetLotteryEvent(id);
-            var component = Lottery_Now.GetComponentBuilder().Build();
             await ModifyOriginalResponseAsync(msg =>
             {
-                msg.Components = component;
+                msg.Content = responseText;
+                msg.Embed = null;
+                msg.Embeds = null;
+                msg.Components = null;
             });
-            // TODO: 切換活動狀態（開放/截止）
-            await FollowupAsync(responseText, ephemeral: true);
+
+            var current = GetLotteryEvent(id);
+            var embed = await current.GetEmbedBuilder();
+            var component = current.GetComponentBuilder();
+            var timestamp = DateTime.Now.AddSeconds(30).ToDiscordTimestamp();
+            embed.AddField("操作時間", $"-# 此管理面板於{timestamp}失效");
+            await FollowupAsync("", [embed.Build()], components: component.Build(), ephemeral: true);
         }
 
 
         [ComponentInteraction("lottery_join:*")]
         public async Task JoinLotteryAsync(string lotteryId)
         {
+            await DeferAsync();
             long id = long.Parse(lotteryId);
             var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
             if (Lottery == null)
             {
-                await RespondAsync("找不到抽獎活動");
+                await FollowupAsync("找不到抽獎活動");
                 return;
             }
             if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
             {
-                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法參加。", ephemeral: true);
+                await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法參加。", ephemeral: true);
                 return;
             }
-            await DeferAsync();
             string responseText = "";
             var (Success, Message) = await DbContext.RunTxAsync(async () =>
             {
@@ -346,6 +393,16 @@ namespace ArchonBot.Modules
                 await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
                 return;
             }
+            var current = GetLotteryEvent(id);
+            var msg = await Context.Client.GetMessageAsync(current.LEM_CHANNEL_ID!.Value, current.LEM_MESSAGE_ID!.Value) ?? throw new Exception($"找不到抽獎參與訊息。");
+            var owner = await Context.Client.GetUserAsync(current.LEM_OWNER_ID);
+            var embed = current.GetParticipateEmbed(Context.Guild, owner);
+            var component = current.GetParticipateComponent();
+            await msg.ModifyAsync((m) =>
+            {
+                m.Embed = embed.Build();
+                m.Components = component.Build();
+            });
 
             await FollowupAsync(responseText, ephemeral: true);
         }
@@ -354,19 +411,20 @@ namespace ArchonBot.Modules
         [ComponentInteraction("lottery_leave:*")]
         public async Task LeaveLotteryAsync(string lotteryId)
         {
+            await DeferAsync();
+            var shorcut = CheckEventValid(lotteryId, Context, false);
             long id = long.Parse(lotteryId);
             var Lottery = DbContext.Get<LOTTERY_EVENT_MASTER>(id);
             if (Lottery == null)
             {
-                await RespondAsync("找不到抽獎活動");
+                await FollowupAsync("找不到抽獎活動");
                 return;
             }
             if (Lottery.LEM_STATUS == "CLOSE" || Lottery.LEM_STATUS == "END" || Lottery.LEM_STATUS == "DRAW")
             {
-                await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法離開。", ephemeral: true);
+                await FollowupAsync($"抽獎`{Lottery.LEM_NAME}`已經關閉，無法離開。", ephemeral: true);
                 return;
             }
-            await DeferAsync();
             string responseText = "";
             var (Success, Message) = await DbContext.RunTxAsync(async () =>
             {
@@ -391,7 +449,18 @@ namespace ArchonBot.Modules
             if (!Success)
             {
                 await FollowupAsync($"操作失敗：{Message}", ephemeral: true);
+                return;
             }
+            var current = GetLotteryEvent(id);
+            var msg = await Context.Client.GetMessageAsync(current.LEM_CHANNEL_ID!.Value, current.LEM_MESSAGE_ID!.Value) ?? throw new Exception($"找不到抽獎參與訊息。");
+            var owner = await Context.Client.GetUserAsync(current.LEM_OWNER_ID);
+            var embed = current.GetParticipateEmbed(Context.Guild, owner);
+            var component = current.GetParticipateComponent();
+            await msg.ModifyAsync((m) =>
+            {
+                m.Embed = embed.Build();
+                m.Components = component.Build();
+            });
 
             await FollowupAsync(responseText, ephemeral: true);
         }
@@ -435,6 +504,38 @@ namespace ArchonBot.Modules
             var sql_w = "SELECT * FROM LOTTERY_EVENT_WINNER WHERE LEW_LEM_SEQ = @EventId";
             Lottery.Winners = DbContext.Query<LOTTERY_EVENT_WINNER>(sql_w, param).ToList();
             return Lottery;
+        }
+
+        private (bool isValid, string message, LotteryEvent? lottery) CheckEventValid(string event_id, SocketInteractionContext interaction, bool compareOwner = true)
+        {
+            if (string.IsNullOrWhiteSpace(event_id))
+            {
+                return (false, $"活動編號為空。", null);
+            }
+            var success = long.TryParse(event_id, out var id);
+            if (!success)
+            {
+                return (false, $"無法解析活動編號`{event_id}`。", null);
+            }
+            return CheckEventValid(id, interaction, compareOwner);
+        }
+
+        private (bool isValid, string message, LotteryEvent? lottery) CheckEventValid(long event_id, SocketInteractionContext interaction, bool compareOwner = true)
+        {
+            if (interaction == null)
+            {
+                return (false, $"交互資訊為空。", null);
+            }
+            var Lottery = GetLotteryEvent(event_id);
+            if(Lottery == null)
+            {
+                return (false, $"找不到編號為`{event_id}`的抽獎活動。", null);
+            }
+            if(compareOwner && !AdminService.IsBotOwner(interaction.User.Id) && Lottery.LEM_OWNER_ID != interaction.User.Id)
+            {
+                return (false, $"您並非抽獎活動`{Lottery.LEM_NAME}`的擁有者，無法進行此操作。", Lottery);
+            }
+            return (true, "", Lottery);
         }
 
         public class LotteryIdAutocomplete(DatabaseContext db, ILogger<LotteryIdAutocomplete> logger) : AutocompleteHandler
