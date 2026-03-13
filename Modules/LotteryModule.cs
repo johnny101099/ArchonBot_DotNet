@@ -465,6 +465,7 @@ namespace ArchonBot.Modules
             await FollowupAsync(responseText, ephemeral: true);
         }
 
+
         [ComponentInteraction("lottery_close:*")]
         public async Task CloseLotteryAsync(string lotteryId)
         {
@@ -491,6 +492,21 @@ namespace ArchonBot.Modules
             }
             // TODO: 關閉活動
             await RespondAsync($"抽獎`{Lottery.LEM_NAME}`已關閉。", ephemeral: true);
+        }
+
+        [ComponentInteraction("lottery_participants_count:*")]
+        public async Task ParticipantsListAsync(string lotteryId)
+        {
+            await DeferAsync(ephemeral: true);
+            var (isValid, message, lottery) = CheckEventValid(lotteryId, Context, false);
+            if (!isValid)
+            {
+                await FollowupAsync(message, ephemeral: true);
+                return;
+            }
+            var embed = lottery!.GetParticipateListEmbed();
+            // TODO: 關閉活動
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
 
